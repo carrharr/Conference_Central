@@ -60,19 +60,19 @@ class Conference(ndb.Model):
     endDate         = ndb.DateProperty()
     maxAttendees    = ndb.IntegerProperty()
     seatsAvailable  = ndb.IntegerProperty()
-
     @property
     def sessions(self):
         return Session.query(ancestor=self.key)
 
 class Session(ndb.Model):
     """Child of Conference class"""
-    sessioName      = ndb.StringProperty()
+    _use_memcache   = True
+    sessioName      = ndb.StringProperty(required=True)
     sessionId       = ndb.StringProperty()
     highlights      = ndb.StringProperty()
-    speaker         = ndb.StringProperty(repeated = True)
-    duration        = ndb.TimeProperty()
-    typeOfSession   = ndb.StringProperty(repeated = True ,default = NOT_SPECIFIED)
+    speaker         = ndb.StringProperty()
+    duration        = ndb.StringProperty()
+    typeOfSession   = ndb.StringProperty(default = 'NOT_SPECIFIED')
     date            = ndb.DateProperty()
     startTime       = ndb.TimeProperty()
 
@@ -97,10 +97,10 @@ class SessionForm(messages.Message):
     sessioName      = messages.StringField(2)
     highlights      = messages.StringField(3)
     speaker         = messages.StringField(4)
-    duration        = messages.DateTimeField(5)
-    typeOfSession   = messages.EnumField('SessionType', 6, repeated = True)
-    date            = messages.DateTimeField(7)
-    startTime       = messages.DateTimeField(8)
+    duration        = messages.StringField(5) #DateTimeField()
+    typeOfSession   = messages.EnumField('SessionType', 6)
+    date            = messages.StringField(7) #DateTimeField()
+    startTime       = messages.StringField(8) #DateTimeField()
     websafeKey      = messages.StringField(9)
 
 class ConferenceForms(messages.Message):
