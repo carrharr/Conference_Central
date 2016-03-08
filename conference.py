@@ -13,7 +13,7 @@ created by wesc on 2014 apr 21
 __author__ = 'wesc+api@google.com (Wesley Chun)'
 
 
-from datetime import datetime
+from datetime import datetime, timedelta, time as timed
 
 import endpoints
 from protorpc import messages
@@ -383,7 +383,7 @@ class ConferenceApi(remote.Service):
             items=[self._copySessionToForm(session) for session in sessions]
         )
 
-# CHECK ALL METHOD
+# WORKS
     @endpoints.method(SESSION_GET_REQUEST, SessionForms,
             path='conference/{websafeConferenceKey}/sessions/by_type/{typeOfSession}',
             http_method='GET', name='getConferenceSessionsByType')
@@ -410,26 +410,18 @@ class ConferenceApi(remote.Service):
             items=[self._copySessionToForm(session) for session in sessions]
         )
 
-# CHECK ALL METHOD
-    @endpoints.method(CONF_GET_REQUEST, SessionForms,
-            http_method='GET', name='getConferenceSessionFeed')
-    def getConferenceSessionFeed(self, request):
+# PENDING TESTING
+    @endpoints.method(message_types.VoidMessage, SessionForms,
+            http_method='GET', name='getSessionFeed')
+    def getSessionFeed(self, request):
         """Returns a conference's sorted feed of sessions occurring same day and later."""
 
         # copy ConferenceForm/ProtoRPC Message into dict
         data = {field.name: getattr(request, field.name) for field in request.all_fields()}
 
-        # fetch existing conference
-        conf = ndb.Key(urlsafe=request.websafeConferenceKey).get()
-
-        # check that conference exists
-        if not conf:
-            raise endpoints.NotFoundException(
-                'No conference found with key: %s' % request.websafeConferenceKey)
-
-        sessions = Session.query(ancestor=ndb.Key(Conference, conf.key.id()))\
-                          .filter(Session.date >= datetime.now()-timedelta(1))\
-                          .order(Session.date, Session.startTime)
+        q = Session.query()
+        qdate = q.filter(Session.date >= datetime.now()-timedelta(1))
+        sessions = qdate.order(Session.date, Session.startTime)
 
         # return set of SessionForm objects per Session
         return SessionForms(
@@ -469,6 +461,16 @@ class ConferenceApi(remote.Service):
                 data[df] = SESSION_DEFAULTS[df]
                 setattr(request, df, SESSION_DEFAULTS[df])
 
+        # convert typeOfSession from SessionType to string
+        for field in ('typeOfSession'):
+            if hasattr(request, field):
+                val = getattr(request, field)
+                if val:
+                    setattr(request, field, str(val))
+                    if field == 'typeOfSession':
+                        setattr(request, field, str(val).upper())
+                    else:
+                        setattr(request, field, val)
         # convert dates from strings to Date objects
         if data['date']:
             data['date'] = datetime.strptime(data['date'][:10], "%Y-%m-%d").date()
@@ -477,6 +479,8 @@ class ConferenceApi(remote.Service):
         if data['startTime']:
             data['startTime'] = datetime.strptime(data['startTime'][:5], "%H:%M").time()
 
+        if data['typeOfSession']:
+            data['typeOfSession'] = str(data['typeOfSession'])
         # generate key based off of parent-child relationship
         p_key = ndb.Key(Conference, conf.key.id())
         s_id = Session.allocate_ids(size=1, parent=p_key)[0]
@@ -495,11 +499,11 @@ class ConferenceApi(remote.Service):
             cache_data['speaker'] = data['speaker']
             cache_data['sessions'] = sessions # TODO: get pickler to load full properties...
             cache_data['sessionNames'] = [Session.sessioName for session in sessions]
-            #if not memcache.set('featured_speaker', cache_data):
-            #    logging.error('Memcache set failed.')
+            if not memcache.set('featured_speaker', cache_data):
+                logging.error('Memcache set failed.')
         return self._copySessionToForm(s)
 
-# WORKS
+# WORKS "BUT SPEAKER IS NOT BEING RETURNED AS STRING"
     def _copySessionToForm(self, Session):
         """Copy relevant fields from Session to SessionForm."""
         sf = SessionForm()
@@ -508,6 +512,8 @@ class ConferenceApi(remote.Service):
                 # convert Date and Time to date string; just copy others
                 if field.name in ['startTime', 'date']:
                     setattr(sf, field.name, str(getattr(Session, field.name)))
+                elif field.name == 'typeOfSession':
+                    setattr(sf, field.name, getattr(SessionType, getattr(Session, field.name)))
                 else:
                     setattr(sf, field.name, getattr(Session, field.name))
             elif field.name == "websafeKey":
@@ -523,7 +529,7 @@ class ConferenceApi(remote.Service):
         """Create a new session for a conference. Open to the organizer of the conference"""
         return self._createSessionObject(request)
 
-# WORKS
+# ISSUE FOUND WITH _copySessionToForm
     @endpoints.method(SPEAKER_GET_REQUEST, SessionForms,
             path='sessions/{speaker}',
             http_method='GET', name='getSessionsBySpeaker')
@@ -540,10 +546,10 @@ class ConferenceApi(remote.Service):
             items=[self._copySessionToForm(session) for session in sessions]
         )
 
-# CHECK ALL METHOD
+# WORKS
     @endpoints.method(message_types.VoidMessage, SessionForms,
-            http_method='GET', name='getEarlyNonWorkshopSessions')
-    def getEarlyNonWorkshopSessions(self, request):
+            http_method='GET', name='getNonWorkshopSessionsBeforeSeven')
+    def getNonWorkshopSessionsBeforeSeven(self, request):
         """Returns non-workshop sessions occurring before 7pm"""
 
         sessions = Session.query(ndb.AND(
@@ -562,7 +568,7 @@ class ConferenceApi(remote.Service):
             items=[self._copySessionToForm(session) for session in filtered_sessions]
         )
 
-# CHECK ALL METHOD
+# NOT READY
     @endpoints.method(message_types.VoidMessage, SpeakerForm,
             http_method='GET', name='getFeaturedSpeaker')
     def getFeaturedSpeaker(self, request):
@@ -651,10 +657,10 @@ class ConferenceApi(remote.Service):
                     val = getattr(save_request, field)
                     if val:
                         setattr(prof, field, str(val))
-                        #if field == 'teeShirtSize':
-                        #    setattr(prof, field, str(val).upper())
-                        #else:
-                        #    setattr(prof, field, val)
+                        if field == 'teeShirtSize':
+                            setattr(prof, field, str(val).upper())
+                        else:
+                            setattr(prof, field, val)
                         prof.put()
 
         # return ProfileForm
