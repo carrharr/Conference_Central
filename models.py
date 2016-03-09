@@ -27,6 +27,7 @@ class Profile(ndb.Model):
     mainEmail = ndb.StringProperty()
     teeShirtSize = ndb.StringProperty(default='NOT_SPECIFIED')
     conferenceKeysToAttend = ndb.StringProperty(repeated=True)
+    sessionKeysToAttend = ndb.StringProperty(repeated=True)
 
 class ProfileMiniForm(messages.Message):
     """ProfileMiniForm -- update Profile form message"""
@@ -39,6 +40,7 @@ class ProfileForm(messages.Message):
     mainEmail = messages.StringField(2)
     teeShirtSize = messages.EnumField('TeeShirtSize', 3)
     conferenceKeysToAttend = messages.StringField(4, repeated=True)
+    sessionKeysToAttend = messages.StringField(5, repeated=True)
 
 class StringMessage(messages.Message):
     """StringMessage-- outbound (single) string message"""
@@ -64,6 +66,7 @@ class Conference(ndb.Model):
     def sessions(self):
         return Session.query(ancestor=self.key)
 
+# TASK 1
 class Session(ndb.Model):
     """Child of Conference class"""
     _use_memcache   = True
@@ -91,6 +94,7 @@ class ConferenceForm(messages.Message):
     websafeKey      = messages.StringField(11)
     organizerDisplayName = messages.StringField(12)
 
+# TASK 1
 class SessionForm(messages.Message):
     """SessionForm -- Session outbound form message"""
     websafeConferenceKey    = messages.StringField(1)
@@ -107,10 +111,12 @@ class ConferenceForms(messages.Message):
     """ConferenceForms -- multiple Conference outbound form message"""
     items = messages.MessageField(ConferenceForm, 1, repeated=True)
 
+# TASK 1
 class SessionForms(messages.Message):
     """SessionForms -- multiple Session outbound form message """
     items = messages.MessageField(SessionForm, 1, repeated=True)
 
+# TASK 1
 class SpeakerForm(messages.Message):
     """SpeakerForm -- Speaker outbound form message """
     speaker         = messages.StringField(1)
@@ -134,6 +140,7 @@ class TeeShirtSize(messages.Enum):
     XXXL_M = 14
     XXXL_W = 15
 
+# TASK 1
 class SessionType(messages.Enum):
     """ Types for sessions enumeration """
     NOT_SPECIFIED = 1
