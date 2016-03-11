@@ -52,7 +52,7 @@ from utils import _getUserId
 EMAIL_SCOPE = endpoints.EMAIL_SCOPE
 API_EXPLORER_CLIENT_ID = endpoints.API_EXPLORER_CLIENT_ID
 MEMCACHE_ANNOUNCEMENTS_KEY = "RECENT_ANNOUNCEMENTS"
-MEMCACHE_SPEAKER_KEY = 'featured_speaker'
+MEMCACHE_SPEAKER_KEY = "featured_speaker"
 ANNOUNCEMENT_TPL = ('Last chance to attend! The following conferences '
                     'are nearly sold out: %s')
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -65,7 +65,7 @@ CONFERENCE_DEFAULTS = {
 }
 SESSION_DEFAULTS = {
     'highlights': 'To be announced',
-    'typeOfSession': 'NOT_SPECIFIED',
+    'typeOfSession': SessionType.NOT_SPECIFIED ,
     'duration': '60'
 }
 OPERATORS = {
@@ -411,7 +411,7 @@ class ConferenceApi(remote.Service):
             items=[self._copySessionToForm(session) for session in sessions]
         )
 
-# TASK 3 (WORKS)
+# TASK 3 ADDITIONAL QUERY (WORKS)
     @endpoints.method(message_types.VoidMessage, SessionForms,
             http_method='GET', name='getSessionFeed')
     def getSessionFeed(self, request):
@@ -428,6 +428,9 @@ class ConferenceApi(remote.Service):
         return SessionForms(
             items=[self._copySessionToForm(session) for session in sessions]
         )
+
+# TASK 3 ADDITIONAL QUERY (non-existent)
+    """ TODO """
 
 # TASK 1 (WORKS)
     def _createSessionObject(self, request):
@@ -462,16 +465,6 @@ class ConferenceApi(remote.Service):
                 data[df] = SESSION_DEFAULTS[df]
                 setattr(request, df, SESSION_DEFAULTS[df])
 
-        # convert typeOfSession from SessionType to string
-        for field in ('typeOfSession'):
-            if hasattr(request, field):
-                val = getattr(request, field)
-                if val:
-                    setattr(request, field, str(val))
-                    if field == 'typeOfSession':
-                        setattr(request, field, str(val).upper())
-                    else:
-                        setattr(request, field, val)
         # convert dates from strings to Date objects
         if data['date']:
             data['date'] = datetime.strptime(data['date'][:10], "%Y-%m-%d").date()
@@ -482,6 +475,7 @@ class ConferenceApi(remote.Service):
 
         if data['typeOfSession']:
             data['typeOfSession'] = str(data['typeOfSession'])
+
         # generate key based off of parent-child relationship
         p_key = ndb.Key(Conference, conf.key.id())
         s_id = Session.allocate_ids(size=1, parent=p_key)[0]
@@ -491,17 +485,17 @@ class ConferenceApi(remote.Service):
         del data['websafeKey']
         s = Session(**data)
         s.put()
-        # check if speaker exists in other sections; if so, add to memcache
-        sessions = Session.query(Session.speaker == data['speaker'],
-            ancestor=conf.key)
 
-        if len(list(sessions)) > 1:
-            cache_data = {}
-            cache_data['speaker'] = data['speaker']
-            cache_data['sessions'] = sessions # TODO: get pickler to load full properties...
-            cache_data['sessionNames'] = [Session.sessioName for session in sessions]
-            if not memcache.set('featured_speaker', cache_data):
-                logging.error('Memcache set failed.')
+# TASK 4 (WORKS)
+        sessions = Session.query(Session.speaker == s.speaker).fetch()
+
+        if len(sessions) > 1 and s.speaker != None:
+            # If there is more than one session by this speaker at this conference,
+            # add a new Memcache entry that features the speaker and session names.
+            mess = s.speaker, ','.join([session.sessioName for session in sessions])
+            message = repr(mess)
+            taskqueue.add(params={'data': message}, url='/tasks/set_featured_speaker')
+
         return self._copySessionToForm(s)
 
 # TASK 1 (WORKS)
@@ -570,41 +564,7 @@ class ConferenceApi(remote.Service):
             items=[self._copySessionToForm(session) for session in filtered_sessions]
         )
 
-# TASK 4 (NOT READY)
-    @endpoints.method(message_types.VoidMessage, SpeakerForm,
-            http_method='GET', name='getFeaturedSpeaker')
-    def getFeaturedSpeaker(self, request):
-        """Returns the sessions of the featured speaker"""
-        # attempt to get data from memcache
-        data = memcache.get('featured_speaker')
-        from pprint import pprint
-        pprint(data)
-        sessions = []
-        sessionNames = []
-        speaker = None
 
-        if data and data.has_key('speaker') and data.has_key('sessionNames'):
-            speaker = data['speaker']
-            sessionNames = data['sessionNames']
-
-        # if memcache fails or is empty, pull speaker from upcoming session
-        else:
-            upcoming_session = Session.query(Session.date >= datetime.now())\
-                                    .order(Session.date, Session.startTime).get()
-            if upcoming_session:
-                speaker = upcoming_session.speaker
-                sessions = Session.query(Session.speaker == speaker)
-                sessionNames = [session.name for session in sessions]
-
-        # populate speaker form
-        sf = SpeakerForm()
-        for field in sf.all_fields():
-            if field.name == 'sessionNames':
-                setattr(sf, field.name, sessionNames)
-            elif field.name == 'speaker':
-                setattr(sf, field.name, speaker)
-        sf.check_initialized()
-        return sf
 
 # - - - Profile objects - - - - - - - - - - - - - - - - - - -
 
@@ -683,7 +643,7 @@ class ConferenceApi(remote.Service):
         return self._doProfile(request)
 
 
-# - - - Announcements - - - - - - - - - - - - - - - - - - - -
+# - - - Announcements and Featured Speaker - - - - - - - - -
 
     @staticmethod
     def _cacheAnnouncement():
@@ -718,6 +678,23 @@ class ConferenceApi(remote.Service):
     def getAnnouncement(self, request):
         """Return Announcement from memcache."""
         return StringMessage(data=memcache.get(MEMCACHE_ANNOUNCEMENTS_KEY) or "")
+
+# TASK 4 (WORKS)
+    @staticmethod
+    def _cacheFeaturedSpeaker(message):
+        """Assign Featured Speaker to memcache."""
+        speaker_data = message
+        memcache.set(MEMCACHE_SPEAKER_KEY, speaker_data)
+
+        return speaker_data
+
+# TASK 4 (WORKS)
+    @endpoints.method(message_types.VoidMessage, StringMessage,
+            path='conference/featured_speaker/get',
+            http_method='GET', name='getFeaturedSpeaker')
+    def getFeaturedSpeaker(self, request):
+        """Return Featured Speaker from memcache."""
+        return StringMessage(data=memcache.get(MEMCACHE_SPEAKER_KEY) or "")
 
 
 # - - - Registration - - - - - - - - - - - - - - - - - - - -
